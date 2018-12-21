@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -106,28 +108,31 @@ func check(err error) {
 }
 
 func main() {
+	file, err := os.Create("/tmp/processing-times")
+	check(err)
+	defer file.Close()
+
 	allForms := GetAllForms()
 	for _, formItem := range allForms {
-		fmt.Printf("Processing form: %s\n", formItem.FormName)
 		officesResult := GetAllFormOffices(formItem.FormName)
+		fmt.Printf("Processing form: %s\n", formItem.FormName)
 		for _, officesItem := range officesResult.Data.FormOffices.Offices {
-			fmt.Printf("%s | %s\n", officesItem.OfficeCode, officesItem.OfficeDescription)
 			resp := GetProcessingTime(formItem.FormName, officesItem.OfficeCode)
 			for _, subType := range resp.Data.ProcessingTime.SubTypes {
 				tRange := subType.Range
-				fmt.Printf("\tResponse time: %.1f %s to %.1f %s\n",
+				file.WriteString(fmt.Sprintf(
+					"%s\t%s\t%.1f %s to %.1f %s\t%s\t%s\n",
+					formItem.FormName,
+					officesItem.OfficeDescription,
 					tRange[1].Value,
 					tRange[1].Unit,
 					tRange[0].Value,
-					tRange[0].Unit)
-				fmt.Printf("\tSubTypeInfo: %s\n", subType.SubTypeInfo)
-				fmt.Printf("\tFormType: %s\n", subType.FormType)
-				fmt.Printf("\tServiceDate: %s\n", subType.ServiceRequestDate)
-				fmt.Println("-----------------------------------------------")
-
+					tRange[0].Unit,
+					strings.TrimSpace(subType.SubTypeInfo),
+					subType.ServiceRequestDate))
+				file.Sync()
 			}
 		}
-		fmt.Println("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
 	}
 	fmt.Println("Done!")
 }
