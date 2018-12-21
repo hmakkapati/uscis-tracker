@@ -62,57 +62,47 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 func GetAllForms() []form {
 	resp, err := httpClient.Get(formsEndpoint)
-	if err != nil {
-		log.Panic(err)
-	}
+	check(err)
 	defer resp.Body.Close()
 
 	var myForms formsResponse
 	decoder := json.NewDecoder(resp.Body)
 	err = decoder.Decode(&myForms)
-	if err != nil {
-		log.Panic(err)
-	}
+	check(err)
 
 	return myForms.Data.Forms.Forms
 }
 
 func GetAllFormOffices(form string) formOfficesResponse {
 	resp, err := httpClient.Get(fmt.Sprintf(formOfficesEndpoint, form))
-	if err != nil {
-		log.Panic(err)
-	}
+	check(err)
 	defer resp.Body.Close()
 
 	var myFormOffices formOfficesResponse
 	decoder := json.NewDecoder(resp.Body)
 	err = decoder.Decode(&myFormOffices)
-	if err != nil {
-		log.Panic(err)
-	}
+	check(err)
 
 	return myFormOffices
 }
 
 func GetProcessingTime(formName, officeName string) processingTimeResponse {
 	resp, err := httpClient.Get(fmt.Sprintf(processingTimesEndpoint, formName, officeName))
-	if err != nil {
-		log.Panic(err)
-	}
+	check(err)
 	defer resp.Body.Close()
 
 	var processingTimeResult processingTimeResponse
 	decoder := json.NewDecoder(resp.Body)
 	err = decoder.Decode(&processingTimeResult)
-	if err != nil {
-		log.Panic(err)
-	}
+	check(err)
 
 	return processingTimeResult
 }
 
-func dumpToExcel() {
-
+func check(err error) {
+	if err != nil {
+		log.Panic(err)
+	}
 }
 
 func main() {
