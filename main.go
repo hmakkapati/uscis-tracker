@@ -112,6 +112,11 @@ func main() {
 	check(err)
 	defer file.Close()
 
+	currTime := time.Now()
+	file.WriteString(fmt.Sprintf("Reported generated at: %s\n", currTime.Format("01/02/2006 15:04:05")))
+	file.WriteString("Form\tField Office/Service Center\tProcessing time range\tForm type\tCase inquiry date")
+	file.Sync()
+
 	allForms := GetAllForms()
 	for _, formItem := range allForms {
 		officesResult := GetAllFormOffices(formItem.FormName)
