@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/user"
 	"path"
-	// "path/filepath"
 	"strings"
 	"time"
 )
@@ -160,13 +159,13 @@ func getOutputFile() string {
 	return path.Join(currUser.HomeDir, fmt.Sprintf("Processing-Times_%s.xlsx", currTime.Format("Jan-02-2006_15-04-05")))
 }
 
-type config struct {
-	form   string
-	office string
+func getFormOfficeKey(formName, officeDesc string) string {
+	return strings.ToLower(
+		strings.TrimSpace(formName) + "|" + strings.TrimSpace(officeDesc))
 }
 
-func readConfiguration(configFile string) ([]config, error) {
-	var configuration []config
+func readConfiguration(configFile string) (map[string]bool, error) {
+	configuration := make(map[string]bool)
 
 	file, err := os.Open(configFile)
 	if err != nil {
@@ -175,15 +174,17 @@ func readConfiguration(configFile string) ([]config, error) {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	fmt.Println("Reading configuration ...")
+	fmt.Println("* Reading configuration ...")
 	for scanner.Scan() {
 		line := scanner.Text()
 		tokens := strings.Split(line, ",")
 		if len(tokens) != 2 {
-			fmt.Printf("WARNING: Invalid configuration `%s` .... skipping\n", line)
+			fmt.Printf("WARNING: Invalid configuration `%s` .... skipping\n",
+				line)
 			continue
 		}
-		configuration = append(configuration, config{strings.TrimSpace(tokens[0]), strings.TrimSpace(tokens[1])})
+		configKey := getFormOfficeKey(tokens[0], tokens[1])
+		configuration[configKey] = true
 	}
 
 	return configuration, nil
@@ -194,13 +195,12 @@ func main() {
 	outputFile := flag.String("output", getOutputFile(), "Output file")
 	flag.Parse()
 
-	if *configFile != "" {
-		config, err := readConfiguration(*configFile)
-		if err != nil {
+	configuration, err := readConfiguration(*configFile)
+	if err != nil {
+		if *configFile != "" {
 			log.Printf("FATAL: Unable to read configuration from: %s\n", *configFile)
 			log.Fatalln(err)
 		}
-		fmt.Println(config)
 	}
 
 	file, err := os.Create(*outputFile)
@@ -211,8 +211,8 @@ func main() {
 	defer file.Close()
 
 	currTime := time.Now()
-	file.WriteString(fmt.Sprintf("Reported generated at: %s\n", currTime.Format("01/02/2006 15:04:05")))
-	file.WriteString("Form\tField Office/Service Center\tProcessing time range\tForm type\tCase inquiry date")
+	file.WriteString(fmt.Sprintf("Report generated at: %s\n", currTime.Format("01/02/2006 15:04:05")))
+	file.WriteString("Form\tField Office/Service Center\tProcessing time range\tForm type\tCase inquiry date\n")
 	file.Sync()
 
 	allForms, err := getAllForms()
@@ -221,6 +221,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	fmt.Println("* Fetching processing time data for:")
 	for _, formItem := range allForms {
 		officesResult, err := getAllFormOffices(formItem.FormName)
 		if err != nil {
@@ -230,9 +231,17 @@ func main() {
 		}
 
 		for _, officesItem := range officesResult.Data.FormOffices.Offices {
-			fmt.Printf("Fetching processing time for: %s | %s\n", formItem.FormName, officesItem.OfficeCode)
+
+			formOfficeKey := getFormOfficeKey(formItem.FormName, officesItem.OfficeDescription)
+			_, keyExists := configuration[formOfficeKey]
+			if len(configuration) != 0 && !keyExists {
+				continue
+			}
+
+			fmt.Printf("%-8s | %-35s ...... ", formItem.FormName, officesItem.OfficeDescription)
 			resp, err := getProcessingTime(formItem.FormName, officesItem.OfficeCode)
 			if err != nil {
+				fmt.Printf("Error\n")
 				log.Printf("WARNING: Unable to get processing time information for %s | %s\n", formItem.FormName, officesItem.OfficeDescription)
 				log.Println(err)
 				file.WriteString(fmt.Sprintf("%s\t%s\tERROR\tERROR\tERROR",
@@ -256,7 +265,9 @@ func main() {
 					subType.ServiceRequestDate))
 				file.Sync()
 			}
+			fmt.Printf("Done\n")
 		}
 	}
-	fmt.Println("Done!")
+	fmt.Println("Processing finishsed successfully!")
+	fmt.Printf("Data is saved to file: %s\n", *outputFile)
 }
