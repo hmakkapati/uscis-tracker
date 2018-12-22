@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/user"
+	"path"
+	// "path/filepath"
 	"strings"
 	"time"
 )
@@ -20,8 +25,7 @@ type formsResponse struct {
 }
 
 type form struct {
-	FormDescriptionEn string `json:"form_description_en"`
-	FormName          string `json:"form_name"`
+	FormName string `json:"form_name"`
 }
 
 // Structs representing response of formOfficesEndpoint
@@ -59,57 +63,151 @@ type processingTimeUnit struct {
 const formsEndpoint = "https://egov.uscis.gov/processing-times/api/forms"
 const formOfficesEndpoint = "https://egov.uscis.gov/processing-times/api/formoffices/%s"
 const processingTimesEndpoint = "https://egov.uscis.gov/processing-times/api/processingtime/%s/%s"
+const defaultErrorMessage = "Unknown error occurred"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func GetAllForms() []form {
-	resp, err := httpClient.Get(formsEndpoint)
-	check(err)
-	defer resp.Body.Close()
-
-	var myForms formsResponse
-	decoder := json.NewDecoder(resp.Body)
-	err = decoder.Decode(&myForms)
-	check(err)
-
-	return myForms.Data.Forms.Forms
-}
-
-func GetAllFormOffices(form string) formOfficesResponse {
-	resp, err := httpClient.Get(fmt.Sprintf(formOfficesEndpoint, form))
-	check(err)
-	defer resp.Body.Close()
-
-	var myFormOffices formOfficesResponse
-	decoder := json.NewDecoder(resp.Body)
-	err = decoder.Decode(&myFormOffices)
-	check(err)
-
-	return myFormOffices
-}
-
-func GetProcessingTime(formName, officeName string) processingTimeResponse {
-	resp, err := httpClient.Get(fmt.Sprintf(processingTimesEndpoint, formName, officeName))
-	check(err)
-	defer resp.Body.Close()
-
-	var processingTimeResult processingTimeResponse
-	decoder := json.NewDecoder(resp.Body)
-	err = decoder.Decode(&processingTimeResult)
-	check(err)
-
-	return processingTimeResult
-}
-
-func check(err error) {
+func checkFatal(err error, message string) {
 	if err != nil {
-		log.Panic(err)
+		if message == "" {
+			message = defaultErrorMessage
+		}
+
+		log.Printf("FATAL: %s ... aborting!", message)
+		log.Fatalln(err)
 	}
 }
 
+func check(err error, message string) {
+	if err != nil {
+		if message == "" {
+			message = defaultErrorMessage
+		}
+
+		log.Printf("ERROR: %s ... skipping!", message)
+		log.Println(err)
+	}
+}
+
+func getAllForms() ([]form, error) {
+	resp, err := httpClient.Get(formsEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		var myForms formsResponse
+		decoder := json.NewDecoder(resp.Body)
+		err = decoder.Decode(&myForms)
+		if err != nil {
+			return nil, err
+		}
+
+		return myForms.Data.Forms.Forms, nil
+	}
+
+	return nil, fmt.Errorf("Response code: %d", resp.StatusCode)
+}
+
+func getAllFormOffices(form string) (formOfficesResponse, error) {
+	var myFormOffices formOfficesResponse
+
+	resp, err := httpClient.Get(fmt.Sprintf(formOfficesEndpoint, form))
+	if err != nil {
+		return myFormOffices, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		decoder := json.NewDecoder(resp.Body)
+		err = decoder.Decode(&myFormOffices)
+		if err != nil {
+			return myFormOffices, err
+		}
+
+		return myFormOffices, nil
+	}
+
+	return myFormOffices, fmt.Errorf("Response code: %d", resp.StatusCode)
+}
+
+func getProcessingTime(formName, officeName string) (processingTimeResponse, error) {
+	var processingTimeResult processingTimeResponse
+
+	resp, err := httpClient.Get(fmt.Sprintf(processingTimesEndpoint, formName, officeName))
+	if err != nil {
+		return processingTimeResult, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		decoder := json.NewDecoder(resp.Body)
+		err = decoder.Decode(&processingTimeResult)
+		if err != nil {
+			return processingTimeResult, err
+		}
+
+		return processingTimeResult, nil
+	}
+
+	return processingTimeResult, fmt.Errorf("Response code: %d", resp.StatusCode)
+}
+
+func getOutputFile() string {
+	currUser, _ := user.Current()
+	currTime := time.Now()
+	return path.Join(currUser.HomeDir, fmt.Sprintf("Processing-Times_%s.xlsx", currTime.Format("Jan-02-2006_15-04-05")))
+}
+
+type config struct {
+	form   string
+	office string
+}
+
+func readConfiguration(configFile string) ([]config, error) {
+	var configuration []config
+
+	file, err := os.Open(configFile)
+	if err != nil {
+		return configuration, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	fmt.Println("Reading configuration ...")
+	for scanner.Scan() {
+		line := scanner.Text()
+		tokens := strings.Split(line, ",")
+		if len(tokens) != 2 {
+			fmt.Printf("WARNING: Invalid configuration `%s` .... skipping\n", line)
+			continue
+		}
+		configuration = append(configuration, config{strings.TrimSpace(tokens[0]), strings.TrimSpace(tokens[1])})
+	}
+
+	return configuration, nil
+}
+
 func main() {
-	file, err := os.Create("/tmp/processing-times")
-	check(err)
+	configFile := flag.String("config", "", "Configuration file")
+	outputFile := flag.String("output", getOutputFile(), "Output file")
+	flag.Parse()
+
+	if *configFile != "" {
+		config, err := readConfiguration(*configFile)
+		if err != nil {
+			log.Printf("FATAL: Unable to read configuration from: %s\n", *configFile)
+			log.Fatalln(err)
+		}
+		fmt.Println(config)
+	}
+
+	file, err := os.Create(*outputFile)
+	if err != nil {
+		log.Printf("FATAL: Unable to create outout file: %s\n", *outputFile)
+		log.Fatalln(err)
+	}
 	defer file.Close()
 
 	currTime := time.Now()
@@ -117,12 +215,33 @@ func main() {
 	file.WriteString("Form\tField Office/Service Center\tProcessing time range\tForm type\tCase inquiry date")
 	file.Sync()
 
-	allForms := GetAllForms()
+	allForms, err := getAllForms()
+	if err != nil {
+		log.Println("FATAL: Unable to fetch forms information from USCIS")
+		log.Fatalln(err)
+	}
+
 	for _, formItem := range allForms {
-		officesResult := GetAllFormOffices(formItem.FormName)
-		fmt.Printf("Processing form: %s\n", formItem.FormName)
+		officesResult, err := getAllFormOffices(formItem.FormName)
+		if err != nil {
+			log.Printf("WARNING: Unable to get offices information for form: %s ... skipping", formItem.FormName)
+			log.Println(err)
+			continue
+		}
+
 		for _, officesItem := range officesResult.Data.FormOffices.Offices {
-			resp := GetProcessingTime(formItem.FormName, officesItem.OfficeCode)
+			fmt.Printf("Fetching processing time for: %s | %s\n", formItem.FormName, officesItem.OfficeCode)
+			resp, err := getProcessingTime(formItem.FormName, officesItem.OfficeCode)
+			if err != nil {
+				log.Printf("WARNING: Unable to get processing time information for %s | %s\n", formItem.FormName, officesItem.OfficeDescription)
+				log.Println(err)
+				file.WriteString(fmt.Sprintf("%s\t%s\tERROR\tERROR\tERROR",
+					formItem.FormName,
+					officesItem.OfficeDescription))
+				file.Sync()
+				continue
+			}
+
 			for _, subType := range resp.Data.ProcessingTime.SubTypes {
 				tRange := subType.Range
 				file.WriteString(fmt.Sprintf(
