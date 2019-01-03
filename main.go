@@ -156,7 +156,7 @@ func getProcessingTime(formName, officeName string) (processingTimeResponse, err
 func getOutputFile() string {
 	currUser, _ := user.Current()
 	currTime := time.Now()
-	return path.Join(currUser.HomeDir, fmt.Sprintf("Processing-Times_%s.xlsx", currTime.Format("Jan-02-2006_15-04-05")))
+	return path.Join(currUser.HomeDir, fmt.Sprintf("Processing-Times_%s", currTime.Format("Jan-02-2006_15-04-05")))
 }
 
 func getFormOfficeKey(formName, officeDesc string) string {
