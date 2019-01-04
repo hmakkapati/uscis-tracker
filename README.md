@@ -6,10 +6,15 @@ Processing times, by default, are fetched for all forms and offices.
 However, this can be controlled to work with specific combination(s) of forms
 and offices using a configuration file.
 
+This project is developed primarily to serve the needs of
+[Volunteers of Legal Service](http://www.volsprobono.org/). However, this can
+be used by anyone who wishes to track USCIS processing times closely.
 
 ## Building
+Golang(1.11.4+) must be installed to be able build this project.
+
 This project can be compiled for various operating systems and architectures.
-Instructions for some of the common ones are given below:
+Build instructions for some of the common ones are given below:
 
 For windows:
 
